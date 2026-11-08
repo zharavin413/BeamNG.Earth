@@ -251,8 +251,14 @@ POLICIES = {
     # MB per new area); optional: without it roads keep their width guesses
     # (4 at once: ~1-5 MB/s a connection, uncached at Cloudflare's edge; a fresh place's first graded block waited ~20 s
     # on 2, the user's OK 2026-10-30; no mirror of the file exists)
+    # OSM Layercake is optional: roads are still built from Overture when this host is slow or unreachable.
+    # Do not spend three full 30 s attempts on a single range read. One attempt is enough to establish a failure;
+    # after two failures in five minutes the circuit opens for 15 minutes, so every new map cell can immediately
+    # fall back to Overture's width guesses instead of repeatedly waiting on a dead/very slow route.
     "data.openstreetmap.us": HostPolicy(rate=8.0, burst=16.0, max_conc=4, daily_budget=5000, allow_prefetch=True,
-                                        offline_ok=True, miss_ttl=None, binary=True, timeout=30.0, optional=True),
+                                        offline_ok=True, miss_ttl=None, binary=True, timeout=30.0, max_attempts=1,
+                                        breaker_threshold=2, breaker_window=300.0, breaker_open=900.0,
+                                        breaker_max=3600.0, optional=True),
     # USGS 3DEP lidar point clouds (roadz.py: the US bridge decks, BNE_LIDAR_DECKS): EPT metadata (kept on disk) and
     # ~0.3 MB LAZ nodes along a cell's bridges once (the decks made from them are kept); optional (the inference)
     "s3-us-west-2.amazonaws.com": HostPolicy(rate=10.0, burst=30.0, max_conc=4, daily_budget=20000, daily_hard=40000,
