@@ -1,0 +1,68 @@
+
+name: Teriberka overlay test build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-test-build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply the Teriberka overlay patch
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:GITHUB_WORKSPACE 'teriberka-overlay-test-patch.zip'
+          if (!(Test-Path $archive)) { throw 'Missing teriberka-overlay-test-patch.zip in repository root.' }
+          $temp = Join-Path $env:RUNNER_TEMP 'teriberka-overlay-patch'
+          Expand-Archive -LiteralPath $archive -DestinationPath $temp -Force
+          $root = Join-Path $temp 'teriberka_overlay_patch'
+          Copy-Item (Join-Path $root 'server/mapdata.py') 'server/mapdata.py' -Force
+          Copy-Item (Join-Path $root 'server/teriberka_overlay.py') 'server/teriberka_overlay.py' -Force
+          Copy-Item (Join-Path $root 'server/teriberka_data') 'server/teriberka_data' -Recurse -Force
+          Copy-Item (Join-Path $root 'server/tests/test_teriberka_overlay.py') 'server/tests/test_teriberka_overlay.py' -Force
+          Copy-Item (Join-Path $root 'tools/build_app.py') 'tools/build_app.py' -Force
+          Get-ChildItem 'server/teriberka_data' | Select-Object Name,Length
+
+      - name: Build native kernels
+        run: python tools/build_native.py
+
+      - name: Install Python dependencies
+        run: python -m pip install pyinstaller==6.22.3 pytest -r server/requirements.txt
+
+      - name: Test Teriberka data integration
+        shell: bash
+        run: PYTHONPATH=server python -m pytest server/tests/test_teriberka_overlay.py -q
+
+      - name: Build PyInstaller bootloader from source
+        run: python tools/build_bootloader.py
+
+      - name: Build separate Windows test executable
+        run: python tools/build_app.py --require-own-bootloader
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          f=$(ls dist/*.exe)
+          "$f" --server --help > help.txt
+          head -5 help.txt
+          test -s help.txt
+
+      - name: Upload Teriberka test executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: BeamNG-Earth-Teriberka-test-Windows
+          path: dist/*.exe
+          if-no-files-found: error
